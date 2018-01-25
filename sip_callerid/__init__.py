@@ -46,7 +46,7 @@ def main():
 
     register_timer = LoopingCall(register_task)
     register_timer.start(180)
-    print "Connecting to SIP server. See syslog for more information."
+    print ("Connecting to SIP server. See syslog for more information.")
 
     class SipCallerDaemon(Daemon):
         def run(self, logger):
@@ -57,7 +57,7 @@ def main():
 
     daemon = SipCallerDaemon(args.pid_file)
     if not daemon.start(logger):
-        print "Already running, restarting..."
+        print ("Already running, restarting...")
         daemon.restart(logger)
 
     sys.exit(0)
@@ -122,7 +122,7 @@ class SipClient(DatagramProtocol):
     def connectionRefused(self):
         self.logger.error("Connection Refused")
 
-    def datagramReceived(self, data, (host, port)):
+    def datagramReceived(self, data, host, port):
         self.logger.info("received %r from %s:%d" % (data, host, port))
         if host != self.server:
             return
@@ -235,7 +235,7 @@ class Daemon:
                     if pid > 0:
                         # exit first parent
                         sys.exit(0)
-                except OSError, e:
+                except OSError as e:
                     sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
                     sys.exit(1)
 
@@ -250,7 +250,7 @@ class Daemon:
                     if pid > 0:
                         # exit from second parent
                         sys.exit(0)
-                except OSError, e:
+                except OSError as e:
                     sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
                     sys.exit(1)
 
@@ -318,13 +318,13 @@ class Daemon:
                     while 1:
                         os.kill(pid, SIGTERM)
                         time.sleep(0.1)
-                except OSError, err:
+                except OSError as err:
                         err = str(err)
                         if err.find("No such process") > 0:
                             if os.path.exists(self.pidfile):
                                 os.remove(self.pidfile)
                         else:
-                            print str(err)
+                            print (str(err))
                             sys.exit(1)
 
         def restart(self, logger):

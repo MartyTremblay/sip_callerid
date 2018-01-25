@@ -7,5 +7,6 @@ setup(
     author='Marty Tremblay',
     author_email='forkme@thetremblays.ca',
     license='MIT',
+    packages=['sip_callerid'],
     zip_safe=False
 )
