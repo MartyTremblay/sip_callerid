@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import argparse, sys, os, re, string, random, hashlib, socket, atexit, time
-import requests
 import logging, logging.handlers
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
@@ -15,6 +14,8 @@ import logging.handlers
 app_name="sip_callerid"
 app_version="1.0"
 
+LOG_FILENAME = app_name + "-" + time.strftime("%Y-%m-%d") + ".log"
+
 def main():
     parser = argparse.ArgumentParser(prog=app_name, description="Magnus 2014-08-18")
     parser.add_argument('--server', action='store', required=True, help='SIP server to connect to')
@@ -23,7 +24,6 @@ def main():
     parser.add_argument('--authname', action='store', required=True, help='Name to authenticate with')
     parser.add_argument('--password', action='store', required=True, help='Password to use')
     parser.add_argument('--realm', action='store', required=False, help='Realm')
-    parser.add_argument('--url', action='store', required=False, help='URL to call on incoming call. CALLERID will be replace with callerid.')
     parser.add_argument('--pid-file', action='store', required=False, default="/tmp/callerid.pid", help='PID file')
     parser.add_argument('-V', '--version', action='version', version="%(prog)s version "+app_version)
 
@@ -33,11 +33,11 @@ def main():
     args.server = ips.pop()
 
     logger = logging.getLogger(app_name)
-    logger.setLevel(logging.INFO)
-    handler = logging.handlers.SysLogHandler(address = '/dev/log')
+    logger.setLevel(logging.DEBUG)
+    handler = logging.FileHandler(LOG_FILENAME)
     logger.addHandler(handler)
 
-    sip = SipClient(logger, args.server, args.port, args.number, args.authname, args.password, args.realm, args.url)
+    sip = SipClient(logger, args.server, args.port, args.number, args.authname, args.password, args.realm)
     reactor.listenUDP(0, sip)
 
     def register_task():
@@ -46,13 +46,13 @@ def main():
 
     register_timer = LoopingCall(register_task)
     register_timer.start(180)
-
     print "Connecting to SIP server. See syslog for more information."
 
     class SipCallerDaemon(Daemon):
         def run(self, logger):
             logger.info('Starting')
             while True:
+                time.sleep(1)
                 reactor.run()
 
     daemon = SipCallerDaemon(args.pid_file)
@@ -65,49 +65,46 @@ def main():
 
 class SipClient(DatagramProtocol):
 
-    msg_register = """REGISTER sip:$server SIP/2.0
-CSeq: $seq REGISTER
-Via: SIP/2.0/UDP $myip:$port; branch=$branch;rport
-User-Agent: """+app_name+""" / """+app_version+""" 
-From: <sip:$number@$server>;tag=$tag
-Call-ID: $callid
-To: <sip:$number@$server>
-Contact: <sip:$number@$myip>;q=1
-Allow: INVITE,ACK,OPTIONS,BYE,CANCEL,SUBSCRIBE,NOTIFY,REFER,MESSAGE,INFO,PING
-Expires: 3600
-Content-Length: 0
-Max-Forwards: 70
-"""
+    msg_register = (    "REGISTER sip:$server SIP/2.0\r\n"
+                        "CSeq: $seq REGISTER\r\n"
+                        "Via: SIP/2.0/UDP $myip:$port; branch=$branch;rport\r\n"
+                        "User-Agent: "+app_name+" / "+app_version+"\r\n"
+                        "From: <sip:$number@$server>;tag=$tag\r\n"
+                        "Call-ID: $callid\r\n"
+                        "To: <sip:$number@$server>\r\n"
+                        "Contact: <sip:$number@$myip>;q=1\r\n"
+                        "Allow: INVITE,ACK,OPTIONS,BYE,CANCEL,SUBSCRIBE,NOTIFY,REFER,MESSAGE,INFO,PING\r\n"
+                        "Expires: 3600\r\n"
+                        "Content-Length: 0\r\n"
+                        "Max-Forwards: 70\r\n\r\n")
 
-    msg_register_auth = """REGISTER sip:$server SIP/2.0
-CSeq: $seq REGISTER
-Via: SIP/2.0/UDP $myip:$port; branch=$branch;rport
-User-Agent: """+app_name+""" / """+app_version+""" 
-Authorization: Digest username="$authname", realm="$realm", nonce="$nonce", uri="sip:$server", algorithm=MD5, response="$response"
-From: <sip:$number@$server>;tag=$tag
-Call-ID: $callid
-To: <sip:$number@$server>
-Contact: <sip:$number@$myip>;q=1
-Expires: 3600
-Content-Length: 0
-Max-Forwards: 70
-"""
-    msg_options = """SIP/2.0 200 OK
-Via: SIP/2.0/UDP $server:$port;branch=$branch;rport
-From: "$realm" <sip:$realm@$server>;tag=$remote_tag
-To: <sip:$number@$myip:5060>;tag=$tag
-Call-ID: $callid
-CSeq: $seq OPTIONS
-Supported: replaces
-User-Agent: """+app_name+""" / """+app_version+""" 
-Allow: INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, REFER, SUBSCRIBE, NOTIFY
-Content-Length: 0
-"""
+    msg_register_auth = ("REGISTER sip:$server SIP/2.0\r\n"
+                        "CSeq: $seq REGISTER\r\n"
+                        "Via: SIP/2.0/UDP $myip:$port; branch=$branch;rport\r\n"
+                        "User-Agent: "+app_name+" / "+app_version+"\r\n"
+                        "Authorization: Digest username=\"$authname\", realm=\"$realm\", nonce=\"$nonce\", opaque=\"\", uri=\"sip:$server\", response=\"$response\"\r\n"
+                        "From: <sip:$number@$server>;tag=$tag\r\n"
+                        "Call-ID: $callid@$myip\r\n"
+                        "To: <sip:$number@$server>\r\n"
+                        "Contact: <sip:$number@$myip>;q=1\r\n"
+                        "Expires: 3600\r\n"
+                        "Content-Length: 0\r\n"
+                        "Max-Forwards: 70\r\n\r\n")
 
-    def __init__(self, logger, server, port, number, authname, password, realm=None, url=None):
+    msg_options = (     "SIP/2.0 200 OK\r\n"
+                        "Via: SIP/2.0/UDP $server:$port;branch=$branch;rport\r\n"
+                        "From: $realm <sip:$realm@$server>;tag=$remote_tag\r\n"
+                        "To: <sip:$number@$myip:5060>;tag=$tag\r\n"
+                        "Call-ID: $callid@$myip\r\n"
+                        "CSeq: $seq OPTIONS\r\n"
+                        "Supported: replaces\r\n"
+                        "User-Agent: "+app_name+" / "+app_version+"\r\n"
+                        "Allow: INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, REFER, SUBSCRIBE, NOTIFY\r\n"
+                        "Content-Length: 0\r\n\r\n")
+
+    def __init__(self, logger, server, port, number, authname, password, realm=None):
         self.logger = logger
         self.realm = realm
-        self.url = url
         self.server = server
         self.port = port
         self.number = number
@@ -115,25 +112,31 @@ Content-Length: 0
         self.password = password
         self.tag = ''.join([random.choice(string.digits) for i in range(10)])
         self.seq = 1
-	self.response = ""
+        self.response = ""
         self.nonce = ""
         self.callerid_branch = ""
         self.myip="0.0.0.0"
         self.registration_counter = 0
- 
-    def datagramReceived(self, data, (host, port)):
-        if host != self.server: 
-            return
-        lines = data.split("\n")
-        self.logger.debug(lines[0])
-        if lines[0][0:7] == "SIP/2.0":
 
+    def connectionRefused(self):
+        self.logger.error("Connection Refused")
+
+    def datagramReceived(self, data, (host, port)):
+        self.logger.info("received %r from %s:%d" % (data, host, port))
+        if host != self.server:
+            return
+
+        lines = data.split("\n")
+
+        self.logger.debug(lines[0])
+
+        if lines[0][0:7] == "SIP/2.0":
             status = lines[0][8:11]
             if status == "401":
                 if self.registration_counter > 5:
                     self.logger.error("Could not register. Exit.")
                     sys.exit(1)
-                self.registration_counter += 1 
+                self.registration_counter += 1
                 m = re.search(".*nonce=\"(\w+)\".*", data)
                 if m: self.nonce = m.groups()[0]
                 if not self.realm:
@@ -144,6 +147,7 @@ Content-Length: 0
                 self.response = hashlib.md5(b""+ha1+":"+self.nonce+":"+ha2).hexdigest()
                 self.seq = self.seq + 1
                 self.sendsip(self.msg_register_auth)
+
         if lines[0][0:7] == "OPTIONS":
             self.registration_counter = 0
             m = re.search(".*tag=(\w+).*", data)
@@ -159,34 +163,35 @@ Content-Length: 0
 
         if lines[0][0:6] == "INVITE":
             callerid = "unknown"
-            m = re.search('.*From: \"(\w+)\".*', data)
+            m = re.search('.*From:\s\"(.*?)\"', data)
             if m: callerid = m.groups()[0]
             m = re.search(".*branch=(\w+).*", data)
-            if m: 
+            if m:
                 if self.callerid_branch and self.callerid_branch == m.groups()[0]:
                     # already got this call
                     return
                 else:
                     self.callerid_branch = m.groups()[0]
             self.logger.info("Incoming call from '%s'" % callerid)
-            if self.url:
-                self.logger.debug("Calling URL %s" % self.url.replace("CALLERID", callerid))
-                requests.get(self.url.replace("CALLERID", callerid))
 
-        
+            return callerid
+
+
     def sendsip(self, msg, branch=None, callid=None, remote_tag=None):
         if self.transport.getHost().host == "0.0.0.0":
             self.transport.connect(self.server, self.port)
             self.myip = self.transport.getHost().host
-            
+
         if not callid:
             callid = "1234"+self.tag
+
         if not branch:
             branch = "z9hG4bK7894"+''.join([random.choice(string.letters + string.digits) for i in range(32)])
+
         if not remote_tag:
             remote_tag = ''.join([random.choice(string.digits) for i in range(10)])
 
-        self.transport.write(string.Template(msg).substitute({"authname": self.authname,
+        parsed_msg = string.Template(msg).substitute({"authname": self.authname,
                                                               "branch": branch,
                                                               "tag": self.tag,
                                                               "callid": callid,
@@ -198,16 +203,18 @@ Content-Length: 0
                                                               "seq": self.seq,
                                                               "port": self.port,
                                                               "response": self.response,
-                                                              "nonce": self.nonce}))
+                                                              "nonce": self.nonce})
+
+        self.logger.debug(parsed_msg)
+        self.transport.write(parsed_msg)
+
         return
 
 
-
-    
 class Daemon:
         """
         A generic daemon class.
-       
+
         Usage: subclass the Daemon class and override the run() method
         """
         def __init__(self, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
@@ -215,7 +222,7 @@ class Daemon:
                 self.stdout = stdout
                 self.stderr = stderr
                 self.pidfile = pidfile
-       
+
         def daemonize(self):
                 """
                 do the UNIX double-fork magic, see Stevens' "Advanced
@@ -230,12 +237,12 @@ class Daemon:
                 except OSError, e:
                         sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
                         sys.exit(1)
-       
+
                 # decouple from parent environment
                 os.chdir("/")
                 os.setsid()
                 os.umask(0)
-       
+
                 # do second fork
                 try:
                         pid = os.fork()
@@ -245,7 +252,7 @@ class Daemon:
                 except OSError, e:
                         sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
                         sys.exit(1)
-       
+
                 # redirect standard file descriptors
                 sys.stdout.flush()
                 sys.stderr.flush()
@@ -255,15 +262,15 @@ class Daemon:
                 os.dup2(si.fileno(), sys.stdin.fileno())
                 os.dup2(so.fileno(), sys.stdout.fileno())
                 os.dup2(se.fileno(), sys.stderr.fileno())
-       
+
                 # write pidfile
                 atexit.register(self.delpid)
                 pid = str(os.getpid())
                 file(self.pidfile,'w+').write("%s\n" % pid)
-       
+
         def delpid(self):
                 os.remove(self.pidfile)
- 
+
         def start(self, logger):
                 """
                 Start the daemon
@@ -275,16 +282,16 @@ class Daemon:
                         pf.close()
                 except IOError:
                         pid = None
-       
+
                 if pid:
                         message = "pidfile %s already exist. Daemon already running?\n"
                         sys.stderr.write(message % self.pidfile)
                         return False
-               
+
                 # Start the daemon
                 self.daemonize()
                 self.run(logger)
-                return True 
+                return True
 
         def stop(self, logger):
                 """
@@ -297,15 +304,15 @@ class Daemon:
                         pf.close()
                 except IOError:
                         pid = None
-       
+
                 if not pid:
                         message = "pidfile %s does not exist. Daemon not running?\n"
                         sys.stderr.write(message % self.pidfile)
                         return # not an error in a restart
- 
+
                 logger.info("Stopping")
 
-                # Try killing the daemon process       
+                # Try killing the daemon process
                 try:
                         while 1:
                                 os.kill(pid, SIGTERM)
@@ -318,14 +325,14 @@ class Daemon:
                         else:
                                 print str(err)
                                 sys.exit(1)
- 
+
         def restart(self, logger):
                 """
                 Restart the daemon
                 """
                 self.stop(logger)
                 self.start(logger)
- 
+
         def run(self):
                 """
                 You should override this method when you subclass Daemon. It will be called after the process has been
