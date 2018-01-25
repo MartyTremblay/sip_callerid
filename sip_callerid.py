@@ -82,7 +82,8 @@ class SipClient(DatagramProtocol):
                         "CSeq: $seq REGISTER\r\n"
                         "Via: SIP/2.0/UDP $myip:$port; branch=$branch;rport\r\n"
                         "User-Agent: "+app_name+" / "+app_version+"\r\n"
-                        "Authorization: Digest username=\"$authname\", realm=\"$realm\", nonce=\"$nonce\", opaque=\"\", uri=\"sip:$server\", response=\"$response\"\r\n"
+                        "Authorization: Digest username=\"$authname\", realm=\"$realm\", nonce=\"$nonce\", opaque=\"\", "
+                            "uri=\"sip:$server\", response=\"$response\"\r\n"
                         "From: <sip:$number@$server>;tag=$tag\r\n"
                         "Call-ID: $callid@$myip\r\n"
                         "To: <sip:$number@$server>\r\n"
@@ -230,13 +231,13 @@ class Daemon:
                 http://www.erlenstar.demon.co.uk/unix/faq_2.html#SEC16
                 """
                 try:
-                        pid = os.fork()
-                        if pid > 0:
-                                # exit first parent
-                                sys.exit(0)
+                    pid = os.fork()
+                    if pid > 0:
+                        # exit first parent
+                        sys.exit(0)
                 except OSError, e:
-                        sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
-                        sys.exit(1)
+                    sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
+                    sys.exit(1)
 
                 # decouple from parent environment
                 os.chdir("/")
@@ -245,13 +246,13 @@ class Daemon:
 
                 # do second fork
                 try:
-                        pid = os.fork()
-                        if pid > 0:
-                                # exit from second parent
-                                sys.exit(0)
+                    pid = os.fork()
+                    if pid > 0:
+                        # exit from second parent
+                        sys.exit(0)
                 except OSError, e:
-                        sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
-                        sys.exit(1)
+                    sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
+                    sys.exit(1)
 
                 # redirect standard file descriptors
                 sys.stdout.flush()
@@ -277,16 +278,16 @@ class Daemon:
                 """
                 # Check for a pidfile to see if the daemon already runs
                 try:
-                        pf = file(self.pidfile,'r')
-                        pid = int(pf.read().strip())
-                        pf.close()
+                    pf = file(self.pidfile,'r')
+                    pid = int(pf.read().strip())
+                    pf.close()
                 except IOError:
-                        pid = None
+                    pid = None
 
                 if pid:
-                        message = "pidfile %s already exist. Daemon already running?\n"
-                        sys.stderr.write(message % self.pidfile)
-                        return False
+                    message = "pidfile %s already exist. Daemon already running?\n"
+                    sys.stderr.write(message % self.pidfile)
+                    return False
 
                 # Start the daemon
                 self.daemonize()
@@ -299,45 +300,45 @@ class Daemon:
                 """
                 # Get the pid from the pidfile
                 try:
-                        pf = file(self.pidfile,'r')
-                        pid = int(pf.read().strip())
-                        pf.close()
+                    pf = file(self.pidfile,'r')
+                    pid = int(pf.read().strip())
+                    pf.close()
                 except IOError:
-                        pid = None
+                    pid = None
 
                 if not pid:
-                        message = "pidfile %s does not exist. Daemon not running?\n"
-                        sys.stderr.write(message % self.pidfile)
-                        return # not an error in a restart
+                    message = "pidfile %s does not exist. Daemon not running?\n"
+                    sys.stderr.write(message % self.pidfile)
+                    return # not an error in a restart
 
                 logger.info("Stopping")
 
                 # Try killing the daemon process
                 try:
-                        while 1:
-                                os.kill(pid, SIGTERM)
-                                time.sleep(0.1)
+                    while 1:
+                        os.kill(pid, SIGTERM)
+                        time.sleep(0.1)
                 except OSError, err:
                         err = str(err)
                         if err.find("No such process") > 0:
-                                if os.path.exists(self.pidfile):
-                                        os.remove(self.pidfile)
+                            if os.path.exists(self.pidfile):
+                                os.remove(self.pidfile)
                         else:
-                                print str(err)
-                                sys.exit(1)
+                            print str(err)
+                            sys.exit(1)
 
         def restart(self, logger):
-                """
-                Restart the daemon
-                """
-                self.stop(logger)
-                self.start(logger)
+            """
+            Restart the daemon
+            """
+            self.stop(logger)
+            self.start(logger)
 
         def run(self):
-                """
-                You should override this method when you subclass Daemon. It will be called after the process has been
-                daemonized by start() or restart().
-                """
+            """
+            You should override this method when you subclass Daemon. It will be called after the process has been
+            daemonized by start() or restart().
+            """
 
 if __name__ == "__main__":
     main()
